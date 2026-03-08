@@ -177,6 +177,16 @@ pub struct EventIssue {
     pub location: String,
 }
 
+// ── Deprecated API Issue (NEW) ──────────────────────────────────────────────────
+
+/// Represents usage of a deprecated Soroban host function.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DeprecatedApiIssue {
+    pub function_name: String,
+    pub deprecated_api: String,
+    pub location: String,
+}
+
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 /// User-defined regex-based rule. Defined in .sanctify.toml under [[custom_rules]].
@@ -323,6 +333,90 @@ impl Analyzer {
             }
         }
         gaps
+    }
+
+    // ── Deprecated API detection ──────────────────────────────────────────────
+
+    /// Returns all usages of deprecated Soroban host functions inside contract impl functions.
+    pub fn scan_deprecated_apis(&self, source: &str) -> Vec<DeprecatedApiIssue> {
+        with_panic_guard(|| self.scan_deprecated_apis_impl(source))
+    }
+
+    fn scan_deprecated_apis_impl(&self, source: &str) -> Vec<DeprecatedApiIssue> {
+        let file = match parse_str::<File>(source) {
+            Ok(f) => f,
+            Err(_) => return vec![],
+        };
+
+        let mut issues = Vec::new();
+        for item in &file.items {
+            if let Item::Impl(i) = item {
+                for impl_item in &i.items {
+                    if let syn::ImplItem::Fn(f) = impl_item {
+                        let fn_name = f.sig.ident.to_string();
+                        self.check_fn_deprecated_apis(&f.block, &fn_name, &mut issues);
+                    }
+                }
+            }
+        }
+
+        issues
+    }
+
+    fn check_fn_deprecated_apis(&self, block: &syn::Block, fn_name: &str, issues: &mut Vec<DeprecatedApiIssue>) {
+        for stmt in &block.stmts {
+            match stmt {
+                syn::Stmt::Expr(expr, _) => self.check_expr_deprecated_apis(expr, fn_name, issues),
+                syn::Stmt::Local(local) => {
+                    if let Some(init) = &local.init {
+                        self.check_expr_deprecated_apis(&init.expr, fn_name, issues);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn check_expr_deprecated_apis(&self, expr: &syn::Expr, fn_name: &str, issues: &mut Vec<DeprecatedApiIssue>) {
+        match expr {
+            syn::Expr::MethodCall(m) => {
+                let method_name = m.method.to_string();
+                if matches!(
+                    method_name.as_str(),
+                    "put_contract_data" | "get_contract_data" | "has_contract_data" | "remove_contract_data" | "get_contract_id"
+                ) {
+                    issues.push(DeprecatedApiIssue {
+                        function_name: fn_name.to_string(),
+                        deprecated_api: method_name.clone(),
+                        location: fn_name.to_string(),
+                    });
+                }
+                self.check_expr_deprecated_apis(&m.receiver, fn_name, issues);
+                for arg in &m.args {
+                    self.check_expr_deprecated_apis(arg, fn_name, issues);
+                }
+            }
+            syn::Expr::Call(c) => {
+                for arg in &c.args {
+                    self.check_expr_deprecated_apis(arg, fn_name, issues);
+                }
+            }
+            syn::Expr::Block(b) => self.check_fn_deprecated_apis(&b.block, fn_name, issues),
+            syn::Expr::If(i) => {
+                self.check_expr_deprecated_apis(&i.cond, fn_name, issues);
+                self.check_fn_deprecated_apis(&i.then_branch, fn_name, issues);
+                if let Some((_, else_expr)) = &i.else_branch {
+                    self.check_expr_deprecated_apis(else_expr, fn_name, issues);
+                }
+            }
+            syn::Expr::Match(m) => {
+                self.check_expr_deprecated_apis(&m.expr, fn_name, issues);
+                for arm in &m.arms {
+                    self.check_expr_deprecated_apis(&arm.body, fn_name, issues);
+                }
+            }
+            _ => {}
+        }
     }
 
     // ── Panic / unwrap / expect detection ────────────────────────────────────
@@ -1380,4 +1474,36 @@ mod tests {
             assert!(issues.iter().any(|i| i.issue_type == EventIssueType::OptimizableTopic && i.message.contains("\"event1\"")));
         }
     */
+    #[test]
+    fn test_scan_deprecated_apis() {
+        let analyzer = Analyzer::new(SanctifyConfig::default());
+        let source = r#"
+            #[contractimpl]
+            impl MyContract {
+                pub fn legacy_storage(env: Env) {
+                    env.put_contract_data(&Symbol::new(&env, "key"), &123);
+                    let val: i32 = env.get_contract_data(&Symbol::new(&env, "key")).unwrap();
+                    if env.has_contract_data(&Symbol::new(&env, "key")) {
+                        env.remove_contract_data(&Symbol::new(&env, "key"));
+                    }
+                    let id = env.get_contract_id();
+                }
+
+                pub fn modern_storage(env: Env) {
+                    env.storage().instance().set(&Symbol::new(&env, "key"), &123);
+                    let val: i32 = env.storage().instance().get(&Symbol::new(&env, "key")).unwrap();
+                }
+            }
+        "#;
+        let issues = analyzer.scan_deprecated_apis(source);
+        assert_eq!(issues.len(), 5);
+        let funcs: Vec<String> = issues.iter().map(|i| i.deprecated_api.clone()).collect();
+        assert!(funcs.contains(&"put_contract_data".to_string()));
+        assert!(funcs.contains(&"get_contract_data".to_string()));
+        assert!(funcs.contains(&"has_contract_data".to_string()));
+        assert!(funcs.contains(&"remove_contract_data".to_string()));
+        assert!(funcs.contains(&"get_contract_id".to_string()));
+
+        assert!(issues.iter().all(|i| i.function_name == "legacy_storage"));
+    }
 }
