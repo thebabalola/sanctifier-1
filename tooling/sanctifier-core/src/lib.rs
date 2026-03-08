@@ -31,7 +31,7 @@ where
 // ── Existing types ────────────────────────────────────────────────────────────
 
 /// Severity of a ledger size warning.
-#[derive(Debug, Serialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum SizeWarningLevel {
     /// Size exceeds the ledger entry limit (e.g. 64KB).
     ExceedsLimit,
@@ -39,7 +39,7 @@ pub enum SizeWarningLevel {
     ApproachingLimit,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SizeWarning {
     pub struct_name: String,
     pub estimated_size: usize,
@@ -47,7 +47,7 @@ pub struct SizeWarning {
     pub level: SizeWarningLevel,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PanicIssue {
     pub function_name: String,
     pub issue_type: String, // "panic!", "unwrap", "expect"
@@ -56,14 +56,14 @@ pub struct PanicIssue {
 
 // ── UnsafePattern types (visitor-based panic/unwrap scanning) ─────────────────
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum PatternType {
     Panic,
     Unwrap,
     Expect,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UnsafePattern {
     pub pattern_type: PatternType,
     pub line: usize,
@@ -72,7 +72,7 @@ pub struct UnsafePattern {
 
 // ── Upgrade analysis types ────────────────────────────────────────────────────
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UpgradeFinding {
     pub category: UpgradeCategory,
     pub function_name: Option<String>,
@@ -81,7 +81,7 @@ pub struct UpgradeFinding {
     pub suggestion: String,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum UpgradeCategory {
     AdminControl,
@@ -92,7 +92,7 @@ pub enum UpgradeCategory {
 }
 
 /// Upgrade safety report.
-#[derive(Debug, Serialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct UpgradeReport {
     pub findings: Vec<UpgradeFinding>,
     pub upgrade_mechanisms: Vec<String>,
@@ -145,7 +145,7 @@ fn is_init_fn(name: &str) -> bool {
 // ── ArithmeticIssue (NEW) ─────────────────────────────────────────────────────
 
 /// Represents an unchecked arithmetic operation that could overflow or underflow.
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ArithmeticIssue {
     /// Contract function in which the operation was found.
     pub function_name: String,
@@ -160,7 +160,7 @@ pub struct ArithmeticIssue {
 // ── EventIssue (NEW) ──────────────────────────────────────────────────────────
 
 /// Severity of a event consistency issue.
-#[derive(Debug, Serialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum EventIssueType {
     /// Topics count varies for the same event name.
     InconsistentSchema,
@@ -168,7 +168,7 @@ pub enum EventIssueType {
     OptimizableTopic,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EventIssue {
     pub function_name: String,
     pub event_name: String,
@@ -197,7 +197,7 @@ pub struct CustomRule {
 }
 
 /// A match from a custom regex rule.
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CustomRuleMatch {
     pub rule_name: String,
     pub line: usize,
