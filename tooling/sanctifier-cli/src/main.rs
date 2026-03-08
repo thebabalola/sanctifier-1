@@ -3,7 +3,7 @@ use colored::*;
 use serde::{Deserialize, Serialize};
 use sanctifier_core::gas_estimator::GasEstimationReport;
 use sanctifier_core::{
-    Analyzer, ArithmeticIssue, CustomRuleMatch, SanctifyConfig, SizeWarning, UnsafePattern,
+    Analyzer, ArithmeticIssue, CustomRuleMatch, DeprecatedApiIssue, SanctifyConfig, SizeWarning, UnsafePattern,
     UpgradeReport,
 };
 use sanctifier_core::zk_proof::ZkProofSummary;
@@ -96,6 +96,7 @@ fn main() {
             let mut all_auth_gaps: Vec<String> = Vec::new();
             let mut all_panic_issues: Vec<sanctifier_core::PanicIssue> = Vec::new();
             let mut all_arithmetic_issues: Vec<ArithmeticIssue> = Vec::new();
+            let mut all_deprecated_api_issues: Vec<DeprecatedApiIssue> = Vec::new();
             let mut all_custom_rule_matches: Vec<CustomRuleMatch> = Vec::new();
             let mut all_gas_estimations: Vec<GasEstimationReport> = Vec::new();
             let mut upgrade_report = UpgradeReport::empty();
@@ -110,6 +111,7 @@ fn main() {
                     &mut all_auth_gaps,
                     &mut all_panic_issues,
                     &mut all_arithmetic_issues,
+                    &mut all_deprecated_api_issues,
                     &mut all_custom_rule_matches,
                     &mut all_gas_estimations,
                     &mut upgrade_report,
@@ -140,6 +142,12 @@ fn main() {
                     for mut a in arith {
                         a.location = format!("{}: {}", path.display(), a.location);
                         all_arithmetic_issues.push(a);
+                    }
+
+                    let deprecated = analyzer.scan_deprecated_apis(&content);
+                    for mut d in deprecated {
+                        d.location = format!("{}: {}", path.display(), d.location);
+                        all_deprecated_api_issues.push(d);
                     }
 
                     /* let events = analyzer.scan_events(&content);
@@ -173,6 +181,7 @@ fn main() {
                     "auth_gaps": all_auth_gaps,
                     "panic_issues": all_panic_issues,
                     "arithmetic_issues": all_arithmetic_issues,
+                    "deprecated_api_issues": all_deprecated_api_issues,
                     "custom_rule_matches": all_custom_rule_matches,
                     "gas_estimations": all_gas_estimations,
                     "upgrade_report": upgrade_report,
@@ -268,6 +277,19 @@ fn main() {
                     println!("\nNo arithmetic overflow risks found.");
                 }
 
+                if !all_deprecated_api_issues.is_empty() {
+                    println!("\n{} Found usages of Deprecated Soroban APIs!", "⚠️".yellow());
+                    for issue in &all_deprecated_api_issues {
+                        println!(
+                            "   {} Function {}: Uses deprecated `{}` ({})",
+                            "->".red(),
+                            issue.function_name.bold(),
+                            issue.deprecated_api.yellow().bold(),
+                            issue.location
+                        );
+                    }
+                }
+
                 if !all_custom_rule_matches.is_empty() {
                     println!("\n{} Found Custom Rule Matches!", "📜".yellow());
                     for m in &all_custom_rule_matches {
@@ -327,6 +349,7 @@ fn main() {
                     "auth": all_auth_gaps.len(),
                     "panics": all_panic_issues.len(),
                     "arith": all_arithmetic_issues.len(),
+                    "deprecated": all_deprecated_api_issues.len(),
                 });
                 let report_str = serde_json::to_string(&output_data_for_hash).unwrap_or_default();
                 let zk_proof = ZkProofSummary::generate_zk_proof_summary(&report_str);
@@ -429,6 +452,7 @@ fn analyze_directory(
     all_auth_gaps: &mut Vec<String>,
     all_panic_issues: &mut Vec<sanctifier_core::PanicIssue>,
     all_arithmetic_issues: &mut Vec<ArithmeticIssue>,
+    all_deprecated_api_issues: &mut Vec<DeprecatedApiIssue>,
     all_custom_rule_matches: &mut Vec<CustomRuleMatch>,
     all_gas_estimations: &mut Vec<GasEstimationReport>,
     upgrade_report: &mut UpgradeReport,
@@ -450,6 +474,7 @@ fn analyze_directory(
                     all_auth_gaps,
                     all_panic_issues,
                     all_arithmetic_issues,
+                    all_deprecated_api_issues,
                     all_custom_rule_matches,
                     all_gas_estimations,
                     upgrade_report,
@@ -484,6 +509,12 @@ fn analyze_directory(
                     for mut a in arith {
                         a.location = format!("{}: {}", path.display(), a.location);
                         all_arithmetic_issues.push(a);
+                    }
+
+                    let deprecated = analyzer.scan_deprecated_apis(&content);
+                    for mut d in deprecated {
+                        d.location = format!("{}: {}", path.display(), d.location);
+                        all_deprecated_api_issues.push(d);
                     }
 
                     /* let events = analyzer.scan_events(&content);
